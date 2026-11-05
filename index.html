@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GBA Player</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --text:#e8eaf0; --muted:#9aa3b2; --accent:#3fb37f; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #setup { max-width:520px; margin:12vh auto 0; padding:28px; background:var(--panel);
+    border-radius:14px; text-align:center; }
+  #setup h1 { margin:0 0 8px; font-size:22px; }
+  #setup p { color:var(--muted); line-height:1.5; margin:8px 0 20px; }
+  label.btn, button { display:inline-block; background:var(--accent); color:#06140d; border:0;
+    padding:12px 22px; border-radius:10px; font-weight:600; cursor:pointer; font-size:15px; }
+  input[type=file] { display:none; }
+  #drop.over { outline:2px dashed var(--accent); outline-offset:8px; }
+  #game-wrap { display:none; position:fixed; inset:0; }
+  #game { width:100%; height:100%; }
+  #forget { position:fixed; top:8px; right:8px; z-index:10; display:none; background:#2a2f3a;
+    color:var(--muted); padding:6px 10px; font-size:12px; font-weight:500; opacity:.6; }
+  #forget:hover { opacity:1; }
+  #ff { position:fixed; top:8px; left:8px; z-index:10; display:none; background:var(--accent);
+    color:#06140d; padding:4px 10px; border-radius:8px; font-weight:700; font-size:13px; pointer-events:none; }
+  #status { color:var(--muted); font-size:13px; margin-top:14px; min-height:1em; }
+</style>
+</head>
+<body>
+<div id="setup">
+  <div id="drop">
+    <h1>GBA Player</h1>
+    <p>Load a Game Boy Advance game you own (<code>.gba</code>, <code>.zip</code> or <code>.7z</code>).
+       You only do this once. The file stays in your own browser and is never uploaded.
+       After that, opening this page starts your game.</p>
+    <p style="font-size:13px">Press <b>F1</b> during play to switch 5x fast forward on and off.</p>
+    <label class="btn">Choose ROM file<input id="file" type="file" accept=".gba,.zip,.7z"></label>
+    <div id="status"></div>
+  </div>
+</div>
+<div id="ff">▶▶ 5x</div>
+<button id="forget" title="Remove the remembered ROM from this browser">Change ROM</button>
+<div id="game-wrap"><div id="game"></div></div>
+
+<script>
+// ---- tiny IndexedDB key/value store for the ROM ----
+const DB = 'gba-player', STORE = 'roms', KEY = 'current';
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function dbOp(mode, fn) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const req = fn(db.transaction(STORE, mode).objectStore(STORE));
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+const getRom = () => dbOp('readonly', s => s.get(KEY)).catch(() => null);
+const putRom = v => dbOp('readwrite', s => s.put(v, KEY));
+const delRom = () => dbOp('readwrite', s => s.delete(KEY));
+
+const $ = id => document.getElementById(id);
+const status = t => $('status').textContent = t;
+
+// ---- launch the emulator (EmulatorJS, mGBA core) ----
+function start(rom) {
+  $('setup').style.display = 'none';
+  $('game-wrap').style.display = 'block';
+  $('forget').style.display = 'block';
+  window.EJS_player = '#game';
+  window.EJS_core = 'gba';
+  // Save files are keyed by game name, so keep it stable for the same ROM.
+  window.EJS_gameName = rom.name.replace(/\.[^.]+$/, '');
+  window.EJS_gameUrl = URL.createObjectURL(new Blob([rom.data]));
+  window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+  window.EJS_startOnLoaded = true;
+  window.EJS_color = '#3fb37f';
+  const s = document.createElement('script');
+  s.src = window.EJS_pathtodata + 'loader.js';
+  document.body.appendChild(s);
+}
+
+async function useFile(file) {
+  if (!file) return;
+  status('Loading…');
+  const rom = { name: file.name, data: await file.arrayBuffer() };
+  try { await putRom(rom); } catch (e) { console.warn('Could not remember ROM', e); }
+  start(rom);
+}
+
+$('file').addEventListener('change', e => useFile(e.target.files[0]));
+const drop = $('drop');
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => useFile(e.dataTransfer.files[0]));
+
+// ---- F1: toggle 5x fast forward ----
+const FF_SPEED = 5;
+let fastForward = false;
+window.addEventListener('keydown', e => {
+  if (e.key !== 'F1') return;
+  e.preventDefault();           // stop the browser's help page
+  e.stopPropagation();
+  if (e.repeat) return;
+  const gm = window.EJS_emulator && window.EJS_emulator.gameManager;
+  if (!gm) return;              // game not running yet
+  fastForward = !fastForward;
+  gm.setFastForwardRatio(FF_SPEED);
+  gm.toggleFastForward(fastForward ? 1 : 0);
+  $('ff').style.display = fastForward ? 'block' : 'none';
+}, true);
+
+$('forget').addEventListener('click', async () => {
+  if (!confirm('Forget the remembered ROM? (In-game saves are kept.)')) return;
+  await delRom();
+  location.reload();
+});
+
+// ---- on open: start the game this browser remembers, otherwise ask ----
+(async () => {
+  const saved = await getRom();
+  if (saved) start(saved);
+})();
+</script>
+</body>
+</html>
