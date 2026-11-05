@@ -5,6 +5,7 @@ A Game Boy Advance player that runs in the browser, built on [EmulatorJS](https:
 - Load a game you own (`.gba`, `.zip` or `.7z`). It's stored only in your browser and never uploaded.
 - Once you've loaded a game, opening the page starts it automatically.
 - In-game saves are kept in your browser.
+- **P** pauses and opens a menu: save state, load state (3 slots each), or load a different ROM.
 - **F1** switches 5x fast forward on and off.
 - **Change ROM** (top right) makes the browser forget the remembered game.
 

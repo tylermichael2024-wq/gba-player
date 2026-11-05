@@ -24,6 +24,23 @@
   #forget:hover { opacity:1; }
   #ff { position:fixed; top:8px; left:8px; z-index:10; display:none; background:var(--accent);
     color:#06140d; padding:4px 10px; border-radius:8px; font-weight:700; font-size:13px; pointer-events:none; }
+  #menu { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.65); padding:16px; }
+  #menu .box { background:var(--panel); border-radius:14px; padding:22px; width:100%; max-width:440px; }
+  #menu h2 { margin:0 0 6px; font-size:20px; text-align:center; }
+  #menu h3 { margin:16px 0 8px; font-size:12px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.06em; font-weight:600; }
+  .slots { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  button.slot { background:#232733; color:var(--text); padding:10px 6px; font-weight:500; font-size:13px;
+    display:flex; flex-direction:column; gap:3px; align-items:center; }
+  button.slot span { color:var(--muted); font-size:11px; }
+  button.slot:hover:not(:disabled) { background:#2c3140; }
+  button.slot:disabled { opacity:.4; cursor:default; }
+  #menu .row { display:flex; gap:8px; margin-top:16px; }
+  #menu .row button { flex:1; padding:12px 10px; }
+  #menu button.secondary { background:#2a2f3a; color:var(--text); }
+  #menu-msg { color:var(--accent); font-size:13px; min-height:1em; margin-top:12px; text-align:center; }
+  #menu .hint { color:var(--muted); font-size:12px; text-align:center; margin-top:12px; }
   #status { color:var(--muted); font-size:13px; margin-top:14px; min-height:1em; }
 </style>
 </head>
@@ -34,13 +51,29 @@
     <p>Load a Game Boy Advance game you own (<code>.gba</code>, <code>.zip</code> or <code>.7z</code>).
        You only do this once. The file stays in your own browser and is never uploaded.
        After that, opening this page starts your game.</p>
-    <p style="font-size:13px">Press <b>F1</b> during play to switch 5x fast forward on and off.</p>
+    <p style="font-size:13px">During play: <b>P</b> pauses (save/load state, change game) · <b>F1</b> switches 5x fast forward on and off.</p>
     <label class="btn">Choose ROM file<input id="file" type="file" accept=".gba,.zip,.7z"></label>
     <div id="status"></div>
   </div>
 </div>
 <div id="ff">▶▶ 5x</div>
 <button id="forget" title="Remove the remembered ROM from this browser">Change ROM</button>
+<div id="menu">
+  <div class="box">
+    <h2>Paused</h2>
+    <h3>Save state</h3>
+    <div class="slots" id="save-slots"></div>
+    <h3>Load state</h3>
+    <div class="slots" id="load-slots"></div>
+    <div id="menu-msg"></div>
+    <div class="row">
+      <button id="resume">Resume</button>
+      <button id="change-rom" class="secondary">Load different ROM</button>
+    </div>
+    <input id="file2" type="file" accept=".gba,.zip,.7z">
+    <div class="hint">Press P or Esc to resume</div>
+  </div>
+</div>
 <div id="game-wrap"><div id="game"></div></div>
 
 <script>
@@ -48,16 +81,19 @@
 const DB = 'gba-player', STORE = 'roms', KEY = 'current';
 function openDB() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    const r = indexedDB.open(DB, 2);
+    r.onupgradeneeded = () => {
+      for (const name of [STORE, 'states'])
+        if (!r.result.objectStoreNames.contains(name)) r.result.createObjectStore(name);
+    };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
 }
-async function dbOp(mode, fn) {
+async function dbOp(mode, fn, store = STORE) {
   const db = await openDB();
   return new Promise((res, rej) => {
-    const req = fn(db.transaction(STORE, mode).objectStore(STORE));
+    const req = fn(db.transaction(store, mode).objectStore(store));
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
   });
@@ -108,13 +144,92 @@ window.addEventListener('keydown', e => {
   if (e.key !== 'F1') return;
   e.preventDefault();           // stop the browser's help page
   e.stopPropagation();
-  if (e.repeat) return;
+  if (e.repeat || menuOpen) return;
   const gm = window.EJS_emulator && window.EJS_emulator.gameManager;
   if (!gm) return;              // game not running yet
   fastForward = !fastForward;
   gm.setFastForwardRatio(FF_SPEED);
   gm.toggleFastForward(fastForward ? 1 : 0);
   $('ff').style.display = fastForward ? 'block' : 'none';
+}, true);
+
+// ---- P: pause menu (save state / load state / load different ROM) ----
+const SLOTS = 3;
+let menuOpen = false;
+const slotKey = i => `${window.EJS_gameName}:${i}`;
+const putState = (i, v) => dbOp('readwrite', s => s.put(v, slotKey(i)), 'states');
+const getState = i => dbOp('readonly', s => s.get(slotKey(i)), 'states').catch(() => null);
+const fmtTime = t => new Date(t).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+const msg = t => $('menu-msg').textContent = t;
+
+async function renderSlots() {
+  const saveRow = $('save-slots'), loadRow = $('load-slots');
+  const states = [];
+  for (let i = 1; i <= SLOTS; i++) states.push(await getState(i));
+  saveRow.innerHTML = loadRow.innerHTML = '';
+  states.forEach((st, idx) => {
+    const i = idx + 1;
+    const html = `<b>Slot ${i}</b><span>${st ? fmtTime(st.time) : 'Empty'}</span>`;
+    const sb = document.createElement('button');
+    sb.className = 'slot'; sb.innerHTML = html; sb.onclick = () => saveSlot(i);
+    const lb = document.createElement('button');
+    lb.className = 'slot'; lb.innerHTML = html; lb.disabled = !st; lb.onclick = () => loadSlot(i);
+    saveRow.appendChild(sb); loadRow.appendChild(lb);
+  });
+}
+
+function openMenu() {
+  const emu = window.EJS_emulator;
+  if (!emu || !emu.gameManager) return;   // game not running yet
+  menuOpen = true;
+  emu.pause();
+  msg('');
+  $('menu').style.display = 'flex';
+  renderSlots();
+}
+function closeMenu() {
+  menuOpen = false;
+  $('menu').style.display = 'none';
+  if (window.EJS_emulator) window.EJS_emulator.play();
+}
+async function saveSlot(i) {
+  try {
+    const data = window.EJS_emulator.gameManager.getState();
+    await putState(i, { data: new Uint8Array(data), time: Date.now() });
+    msg(`Saved to slot ${i}.`);
+    renderSlots();
+  } catch (e) { console.error(e); msg('Could not save state.'); }
+}
+async function loadSlot(i) {
+  const st = await getState(i);
+  if (!st) return;
+  try {
+    closeMenu();
+    window.EJS_emulator.gameManager.loadState(new Uint8Array(st.data));
+  } catch (e) { console.error(e); openMenu(); msg('Could not load state.'); }
+}
+
+$('resume').addEventListener('click', closeMenu);
+$('change-rom').addEventListener('click', () => $('file2').click());
+$('file2').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  msg('Loading…');
+  await putRom({ name: file.name, data: await file.arrayBuffer() });
+  location.reload();   // restart the emulator with the new game
+});
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'p') {
+    e.preventDefault(); e.stopPropagation();
+    if (!e.repeat) menuOpen ? closeMenu() : openMenu();
+    return;
+  }
+  if (menuOpen) {               // keep keys away from the game while paused
+    e.stopPropagation();
+    if (k === 'escape') closeMenu();
+  }
 }, true);
 
 $('forget').addEventListener('click', async () => {
