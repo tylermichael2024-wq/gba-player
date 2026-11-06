@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS Player</title>
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+<script>
+window.PLAYER = {
+  id: 'ds', core: 'nds', title: 'DS Player', system: 'Nintendo DS',
+  accept: '.nds,.zip,.7z', aspect: 256 / 384,   // two 256×192 screens stacked
+  extraHelp: '<br>Click the bottom screen with your mouse to use the touch screen.'
+};
+</script>
+<script src="player.js"></script>
+</body>
+</html>

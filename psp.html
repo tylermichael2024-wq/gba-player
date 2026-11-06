@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSP Player</title>
+<link rel="stylesheet" href="player.css">
+<script>
+// The PSP emulator needs cross-origin isolation. On first visit, install the helper
+// service worker and reload once so it can add the required headers.
+if (!window.crossOriginIsolated && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('coi-sw.js', { scope: './psp' }).then(() => {
+    let tried = false;
+    try { tried = sessionStorage.getItem('coi-reload') === '1'; sessionStorage.setItem('coi-reload', '1'); } catch (_) {}
+    if (!tried) navigator.serviceWorker.ready.then(() => location.reload());
+  });
+} else {
+  try { sessionStorage.removeItem('coi-reload'); } catch (_) {}
+}
+</script>
+</head>
+<body>
+<script>
+window.PLAYER = {
+  id: 'psp', core: 'psp', title: 'PSP Player', system: 'PSP',
+  accept: '.cso,.iso,.pbp,.chd,.elf,.zip,.7z', showTypes: '.cso,.iso,.pbp',
+  aspect: 480 / 272, smooth: false, threads: true,
+  extraHelp: '<br>Tip: <code>.cso</code> files are much smaller than <code>.iso</code> and load faster. ' +
+    'PSP emulation is demanding, so a recent computer and Chrome, Edge or Firefox work best (Safari isn\'t supported).'
+};
+if (!window.crossOriginIsolated) {
+  window.PLAYER.extraHelp += '<br><b style="color:#e8a33f">Setting up… if this message stays after a reload, your browser ' +
+    'is blocking the feature the PSP player needs. Try Chrome or Edge.</b>';
+}
+</script>
+<script src="player.js"></script>
+</body>
+</html>

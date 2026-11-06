@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PS1 Player</title>
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+<script>
+window.PLAYER = {
+  id: 'ps1', core: 'psx', title: 'PS1 Player', system: 'PlayStation',
+  accept: '.chd,.pbp,.zip,.7z,.iso,.bin,.cue', showTypes: '.chd,.pbp,.zip', aspect: 4 / 3, smooth: false,
+  extraHelp: '<br>Disc games: use a single <code>.chd</code> or <code>.pbp</code> file, or a <code>.zip</code> containing the game\'s <code>.cue</code> and <code>.bin</code> files.'
+};
+</script>
+<script src="player.js"></script>
+</body>
+</html>
